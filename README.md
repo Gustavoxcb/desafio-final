@@ -1,4 +1,165 @@
-# desafio-final
+# Desafio Final: ETL da Verdejar
+ 
+ETL em Python que extrai clientes e pedidos de uma API paginada e produtos de um arquivo CSV, trata as seis armadilhas de qualidade dos dados (A1 a A6), carrega o resultado em um PostgreSQL e prova a carga com testes, reconciliação e consultas de validação.
+ 
+---
+ 
+## Ambiente
+ 
+- Windows 11, PowerShell e VS Code
+- Python 3.15
+- PostgreSQL 16 em contêiner Docker (**caminho B** da seção 4 do desafio)
+- Bibliotecas externas (em `requirements.txt`):
+  - `psycopg[binary]`: biblioteca de conexão com o PostgreSQL
+  - `python-dotenv`: lê a configuração do banco a partir do arquivo `.env`
+  - `pytest`: testes automatizados
+
+## Estrutura do projeto
+ 
+```
+desafio-final/
+  etl/
+    extracao.py        Parte 1: API paginada, CSV e dados brutos
+    transformacao.py   Parte 2: funções das armadilhas A1 a A6 e contadores
+    carga.py           Parte 3: conexão, carga no PostgreSQL e reconciliação
+    main.py            executa o ETL completo
+  tests/
+    test_transformacao.py   testes das armadilhas A1 a A6
+    test_reconciliacao.py   teste de reconciliação origem x destino
+  insumos_verdejar/    insumos fornecidos (API, gerador, esquemas e dados)
+  brutos/              dados extraídos (gerado pelo ETL; fora do Git)
+  consultas_validacao.sql
+  CONTRATO_DE_DADOS.md
+  COMO_USEI_IA.md
+  .env.example         modelo do .env (sem a senha)
+```
+ 
+Os insumos ficam na pasta `insumos_verdejar/`, e não em `insumos/` como na sugestão da seção 7.
+ 
+## Como rodar
+ 
+Todos os comandos são executados na raiz do projeto (`C:\desafio-final`), exceto onde indicado.
+ 
+### 1. Instalar as dependências
+ 
+```
+python -m pip install -r requirements.txt
+```
+ 
+### 2. Configurar o acesso ao banco
+ 
+Copie o `.env.example` para um arquivo `.env` e preencha a senha em `DB_SENHA`. O `.env` está no `.gitignore` e nunca é versionado.
+ 
+### 3. Subir o banco (PostgreSQL no Docker) e aplicar o esquema
+ 
+Com o Docker Desktop aberto:
+ 
+```
+docker run --name verdejar-pg -e POSTGRES_PASSWORD=SUA_SENHA -e POSTGRES_DB=verdejar -p 5433:5432 -d postgres:16
+cd insumos_verdejar
+docker cp schema.sql verdejar-pg:/schema.sql
+docker exec verdejar-pg psql -U postgres -d verdejar -f /schema.sql
+cd ..
+```
+ 
+**Porta 5433:** o contêiner usa a porta 5433 do computador, e não a 5432 do documento, porque já havia um PostgreSQL instalado no Windows ocupando a 5432. O `.env` aponta para a 5433.
+ 
+**PowerShell:** o comando do documento usa `< schema.sql`, que não funciona no PowerShell. Por isso o arquivo é copiado para dentro do contêiner com `docker cp` e aplicado com `psql -f`.
+ 
+Nas próximas vezes, basta `docker start verdejar-pg`.
+ 
+### 4. Subir a API (em um terminal separado, que fica aberto)
+ 
+```
+cd insumos_verdejar
+python api_verdejar.py
+```
+ 
+Para conferir, no Windows PowerShell use `curl.exe` (o `curl` do PowerShell é um apelido de outro comando):
+ 
+```
+curl.exe "http://127.0.0.1:8000/saude"
+```
+ 
+### 5. Rodar o ETL completo
+ 
+```
+python -m etl.main
+```
+ 
+### 6. Rodar os testes
+ 
+Com o banco carregado (o teste de reconciliação consulta o PostgreSQL):
+ 
+```
+python -m pytest -v
+```
+ 
+### 7. Rodar as consultas de validação
+ 
+```
+docker cp consultas_validacao.sql verdejar-pg:/consultas.sql
+docker exec verdejar-pg psql -U postgres -d verdejar -f /consultas.sql
+```
+ 
+## Estratégia de idempotência
+ 
+Antes de carregar, o ETL esvazia as quatro tabelas com `TRUNCATE itens_pedido, pedidos, clientes, produtos` e carrega tudo de novo, dentro de uma única transação (se algo falhar no meio, nada é gravado e os dados anteriores continuam no banco).
+ 
+Escolhi essa estratégia porque o ETL sempre traz todos os dados da fonte, e assim o banco fica sempre igual à fonte, inclusive se algum dado mudar. A alternativa de inserir ignorando os ids já existentes deixaria no banco valores desatualizados quando um registro mudasse na fonte.
+ 
+Todas as inserções usam parâmetros (`%s`), sem montar SQL concatenando texto com os dados. A ordem de carga respeita as chaves estrangeiras: produtos, clientes, pedidos e itens_pedido.
+ 
+## Decisões de transformação
+ 
+- Os pedidos repetidos são removidos **antes** das conversões, mantendo a primeira ocorrência. Por isso, os contadores de datas e de valores convertidos se referem apenas aos 5000 pedidos únicos.
+- `valores_convertidos` conta apenas os valores que vieram como texto com vírgula.
+- Datas: `DD/MM/AAAA` é convertida para `AAAA-MM-DD`; `AAAA-MM-DD` é mantida; qualquer outro formato gera erro.
+- A divergência considera a diferença entre `valor_total` e `valor_itens` para mais ou para menos, maior que um centavo.
+- Na consulta de vendas por mês, os pedidos com status `cancelado` não são contados como venda.
+
+As regras de cada campo estão no `CONTRATO_DE_DADOS.md`.
+ 
+## Saída do ETL
+ 
+Duas execuções seguidas de `python -m etl.main` (24/11/2026), com as mesmas contagens (idempotência):
+ 
+```
+extracao: clientes paginas=5 registros=1000
+extracao: pedidos paginas=26 registros_brutos=5100
+extracao: produtos registros=12
+extracao: bruto salvo em brutos\clientes.json registros=1000
+extracao: bruto salvo em brutos\pedidos.json registros=5100
+extracao: bruto salvo em brutos\produtos.json registros=12
+transformacao: pedidos_unicos=5000 repetidos_descartados=100
+transformacao: emails_nulos=81 estados_padronizados=151 datas_convertidas=1037 valores_convertidos=1255
+divergentes: 238 pedidos com valor_total diferente da soma dos itens
+carga: clientes=1000 produtos=12 pedidos=5000 itens=12455
+```
+ 
+```
+extracao: clientes paginas=5 registros=1000
+extracao: pedidos paginas=26 registros_brutos=5100
+extracao: produtos registros=12
+extracao: bruto salvo em brutos\clientes.json registros=1000
+extracao: bruto salvo em brutos\pedidos.json registros=5100
+extracao: bruto salvo em brutos\produtos.json registros=12
+transformacao: pedidos_unicos=5000 repetidos_descartados=100
+transformacao: emails_nulos=81 estados_padronizados=151 datas_convertidas=1037 valores_convertidos=1255
+divergentes: 238 pedidos com valor_total diferente da soma dos itens
+carga: clientes=1000 produtos=12 pedidos=5000 itens=12455
+```
+ 
+Depois que a reconciliação foi incluída no ETL (25/11/2026), a execução passou a terminar com:
+ 
+```
+carga: clientes=1000 produtos=12 pedidos=5000 itens=12455
+reconciliacao: soma_valor_itens_origem=311228.75 soma_valor_itens_destino=311228.75 diferenca=0.00
+```
+ 
+**Conferências:** os 81 e-mails nulos e os 151 estados em minúsculas batem com uma busca manual nos dados brutos; os 100 repetidos e os cerca de 5% de divergentes batem com o que o `gerar_dados.py` descreve.
+ 
+---
  
 ## Consultas de validação
  
