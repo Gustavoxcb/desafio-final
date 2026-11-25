@@ -86,3 +86,21 @@ def executar_carga(produtos, clientes, pedidos, itens):
     print(f"carga: clientes={contagens['clientes']} produtos={contagens['produtos']} "
           f"pedidos={contagens['pedidos']} itens={contagens['itens']}")
     return contagens
+
+def reconciliar(pedidos):
+    contagem_origem = len(pedidos)
+    soma_origem = 0
+    for p in pedidos:
+        soma_origem += p["valor_itens"]
+    soma_origem = round(soma_origem, 2)
+
+    with conectar() as conexao:
+        contagem_destino, soma_destino = conexao.execute(
+            "SELECT COUNT(*), COALESCE(SUM(valor_itens), 0) FROM pedidos"
+        ).fetchone()
+    soma_destino = round(float(soma_destino), 2)
+
+    diferenca = round(abs(soma_origem - soma_destino), 2)
+    print(f"reconciliacao: soma_valor_itens_origem={soma_origem:.2f} "
+          f"soma_valor_itens_destino={soma_destino:.2f} diferenca={diferenca:.2f}")
+    return contagem_origem, contagem_destino, soma_origem, soma_destino

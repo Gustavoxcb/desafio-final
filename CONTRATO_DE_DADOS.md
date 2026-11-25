@@ -38,7 +38,7 @@
 |---|---|---|---|---|
 | id | Inteiro | Não | API /pedidos, campo id | Remove os pedidos de mesmo id, mantém a primeira ocorrência e conta os descartados. Armadilha A5 |
 | cliente_id | Inteiro | Não | API /pedidos, campo cliente_id | Mantém sem transformação |
-| data_pedido | Data | Não | API /pedidos, campo data_pedido | Recebe dois formatos: AAAA-MM-DD que será mantido e DD/MM/AAAA que será convertido para AAAA-MM-DD. Conta as datas convertidas. Armadilha A3 |
+| data_pedido | Data | Não | API /pedidos, campo data_pedido | Recebe dois formatos: AAAA-MM-DD que será mantido e DD/MM/AAAA que será convertido para AAAA-MM-DD. Conta as datas convertidas. Dia e mês com um dígito recebem zero à esquerda. Outros formatos geram erro. Armadilha A3 |
 | status | Texto | Não | API /pedidos, campo status | Mantém sem transformação |
 | valor_total | Decimal com duas casas (NUMERIC(12,2)) | Não | API /pedidos, campo valor_total | Recebe dois formatos, um já é numero e outro que está em texto com virgula decimal. Mantém o caso onde é número e converte o caso onde é texto para número, ambos com duas casas decimais. Conta somente o formato que era texto. Armadilha A4 |
 | valor_itens | Decimal com duas casas (NUMERIC(12,2)) | Não | Calculado a partir dos itens do pedido | Faz a soma de quantidade × preco_unitario de todos os itens do pedido, arredondando para 2 casas decimais. Armadilha A6. |

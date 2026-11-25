@@ -1,7 +1,6 @@
 from etl.extracao import executar_extracao
 from etl.transformacao import executar_transformacao
-from etl.carga import executar_carga
-
+from etl.carga import executar_carga, reconciliar
 
 def main():
     if not executar_extracao():
@@ -9,7 +8,7 @@ def main():
         return
     produtos, clientes, pedidos, itens = executar_transformacao()
     executar_carga(produtos, clientes, pedidos, itens)
-
+    reconciliar(pedidos)
 
 if __name__ == "__main__":
     main()

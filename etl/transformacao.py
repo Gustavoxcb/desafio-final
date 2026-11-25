@@ -1,4 +1,5 @@
 from etl.extracao import carregar_bruto
+from datetime import datetime
 
 def padronizar_estado(cliente):
     novo_cliente = cliente.copy()  
@@ -14,12 +15,12 @@ def converter_valor(valor):
 def converter_data(data):
     if isinstance(data, str) and "/" in data:
         partes = data.split("/")
-        if len(partes) == 3:
-            dia, mes, ano = partes
-            return f"{ano}-{mes.zfill(2)}-{dia.zfill(2)}"
-        raise ValueError(f"data em formato inesperado: {data}")
-    else:
-        return data  
+        if len(partes) != 3:
+            raise ValueError(f"data em formato inesperado: {data}")
+        dia, mes, ano = partes
+        data = f"{ano}-{mes.zfill(2)}-{dia.zfill(2)}"
+    datetime.strptime(data, "%Y-%m-%d")
+    return data
 
 def remover_repetidos(pedidos):
     vistos = set()
